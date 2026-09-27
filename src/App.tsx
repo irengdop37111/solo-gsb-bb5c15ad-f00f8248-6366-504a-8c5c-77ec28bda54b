@@ -4,6 +4,8 @@ import { expandAll } from './ical-engine/expansion';
 import { detectConflicts, instanceId } from './ical-engine/conflicts';
 import { diffInstances, instanceIdentity } from './ical-engine/diff';
 import type { InstanceChange } from './ical-engine/diff';
+import { diffConflicts } from './ical-engine/conflict-diff';
+import type { ConflictChange } from './ical-engine/conflict-diff';
 import { normalizeCalendar } from './ical-engine/normalizer';
 import { SAMPLE_ICS } from './ical-engine/samples';
 import type {
@@ -123,6 +125,12 @@ export default function App() {
     return diffInstances(baseline.instances, expansion.instances);
   }, [baseline, expansion]);
 
+  // 冲突变化：基线冲突对 vs 当前编辑状态下的冲突对（按 LOCATION + 无序实例身份对匹配）
+  const conflictChanges = useMemo(() => {
+    if (!baseline || !expansion) return [] as ConflictChange[];
+    return diffConflicts(baseline.instances, expansion.instances);
+  }, [baseline, expansion]);
+
   const conflicts = useMemo(
     () => (expansion ? detectConflicts(expansion.instances) : null),
     [expansion]
@@ -196,6 +204,51 @@ export default function App() {
       }
     },
     [selectInstance]
+  );
+
+  // 点击冲突变化项：定位双方实例（焦点行 + 冲突方红框）与 ICS 原文
+  const selectConflictChange = useCallback(
+    (cc: ConflictChange) => {
+      const side = cc.after ?? cc.before;
+      if (!side || !expansion) return;
+      const current = expansion.instances;
+      const aCur = current.find((i) => instanceIdentity(i) === cc.identityA);
+      const bCur = current.find((i) => instanceIdentity(i) === cc.identityB);
+      // 焦点：优先当前生效的 A，其次 B；双方都不在生效列表（实例被移除）时
+      // 退回基线侧 A 并以幽灵行展示。冲突方红框用另一侧实例的块范围
+      // （masterRange / overrideRange 为解析期数据，两侧一致）。
+      let focus: Instance;
+      let peer: Instance;
+      let ghost: Instance | null = null;
+      if (aCur) {
+        focus = aCur;
+        peer = side.b;
+      } else if (bCur) {
+        focus = bCur;
+        peer = side.a;
+      } else {
+        focus = side.a;
+        peer = side.b;
+        ghost = side.a;
+      }
+      setGhostInstance(ghost);
+      setSlotMark(null);
+      setRightTab('visible');
+      setSelection({
+        instanceKey: instanceId(focus),
+        seriesId: focus.seriesId,
+        overrideId: focus.override?.id ?? focus.rangeOverride?.id ?? null,
+        conflictRanges: [
+          {
+            start: peer.overrideRange?.start ?? peer.masterRange.start,
+            end: peer.overrideRange?.end ?? peer.masterRange.end,
+            kind: 'conflict' as const,
+          },
+        ],
+        token: `cc-${cc.key}`,
+      });
+    },
+    [expansion]
   );
 
   // 点击空闲窗口：切到生效表，高亮并定位前邻（优先）/后邻
@@ -426,6 +479,14 @@ export default function App() {
                     </b>
                   </span>
                 )}
+                {conflictChanges.length > 0 && (
+                  <span>
+                    冲突变化{' '}
+                    <b style={{ color: 'var(--conflict)', cursor: 'pointer' }} onClick={() => setRightTab('conflicts')}>
+                      {conflictChanges.length}
+                    </b>
+                  </span>
+                )}
               </span>
             )}
           </div>
@@ -502,6 +563,8 @@ export default function App() {
               onTabChange={setRightTab}
               changes={changes}
               onSelectChange={selectChange}
+              conflictChanges={conflictChanges}
+              onSelectConflictChange={selectConflictChange}
               selectedIdentity={selectedIdentity}
               ghostInstance={activeGhost}
               selectedKey={selection.instanceKey}

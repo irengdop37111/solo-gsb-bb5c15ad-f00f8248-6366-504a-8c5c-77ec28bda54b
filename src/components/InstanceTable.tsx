@@ -2,14 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Instance } from '../ical-engine/types';
 import { detectConflicts, instanceId } from '../ical-engine/conflicts';
 import type { InstanceChange } from '../ical-engine/diff';
+import type { ConflictChange } from '../ical-engine/conflict-diff';
 import type { FreeSlot } from '../ical-engine/free-windows';
 import type { KeepSetting } from '../ical-engine/keep-plan';
 import { formatWall, formatOffset } from '../utils/format';
 import { ChangeImpact } from './ChangeImpact';
+import { ConflictChanges } from './ConflictChanges';
 import { FreeWindows } from './FreeWindows';
 import { KeepPlan } from './KeepPlan';
 
-export type AuditTab = 'visible' | 'cancelled' | 'excluded' | 'impact' | 'free' | 'keep';
+export type AuditTab = 'visible' | 'cancelled' | 'excluded' | 'impact' | 'conflicts' | 'free' | 'keep';
 
 /** 点击空闲窗口后，在生效表定位空档前后相邻事件的标记 */
 export interface SlotMark {
@@ -30,6 +32,9 @@ interface InstanceTableProps {
   /** 变更影响比对结果（impact 页签） */
   changes: InstanceChange[];
   onSelectChange: (change: InstanceChange) => void;
+  /** 冲突变化比对结果（conflicts 页签） */
+  conflictChanges: ConflictChange[];
+  onSelectConflictChange: (change: ConflictChange) => void;
   /** 当前选中实例身份（uid#recurrenceKey），变更影响行高亮用 */
   selectedIdentity: string | null;
   /** 从“变更影响”联动过来的已移除实例：在生效表中以幽灵行展示，仍可定位源码 */
@@ -62,6 +67,8 @@ export function InstanceTable({
   onTabChange,
   changes,
   onSelectChange,
+  conflictChanges,
+  onSelectConflictChange,
   selectedIdentity,
   ghostInstance,
   selectedKey,
@@ -91,7 +98,7 @@ export function InstanceTable({
   }, [tab, instances, cancelled, excluded]);
 
   const filteredRows = useMemo(() => {
-    if (tab === 'impact' || tab === 'free' || tab === 'keep') return [];
+    if (tab === 'impact' || tab === 'conflicts' || tab === 'free' || tab === 'keep') return [];
     const q = locFilter.trim().toLowerCase();
     return rows.filter((i) => {
       if (q && !i.location.toLowerCase().includes(q) && !i.summary.toLowerCase().includes(q)) {
@@ -156,6 +163,9 @@ export function InstanceTable({
         <button className={tab === 'impact' ? 'active' : ''} onClick={() => onTabChange('impact')}>
           变更影响{changes.length > 0 ? `（${changes.length}）` : ''}
         </button>
+        <button className={tab === 'conflicts' ? 'active' : ''} onClick={() => onTabChange('conflicts')}>
+          冲突变化{conflictChanges.length > 0 ? `（${conflictChanges.length}）` : ''}
+        </button>
       </div>
 
       {tab === 'impact' ? (
@@ -164,6 +174,8 @@ export function InstanceTable({
           selectedIdentity={selectedIdentity}
           onSelectChange={onSelectChange}
         />
+      ) : tab === 'conflicts' ? (
+        <ConflictChanges changes={conflictChanges} onSelect={onSelectConflictChange} />
       ) : tab === 'free' ? (
         <FreeWindows
           instances={instances}

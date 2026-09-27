@@ -852,6 +852,65 @@ tr.instance-row.ghost-removed .tag {
   border-color: var(--cancelled);
 }
 
+/* ---------- 冲突变化 ---------- */
+
+.diff-row.cc-added {
+  box-shadow: inset 3px 0 0 var(--ok);
+}
+
+.diff-row.cc-removed {
+  box-shadow: inset 3px 0 0 var(--cancelled);
+}
+
+.diff-row.cc-changed {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+
+.diff-badge.cc-added {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.diff-badge.cc-removed {
+  color: var(--cancelled);
+  border-color: var(--cancelled);
+}
+
+.diff-badge.cc-changed {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.diff-filter button.chip.cc-added.active {
+  color: var(--ok);
+  border-color: var(--ok);
+  background: rgba(52, 192, 138, 0.14);
+}
+
+.diff-filter button.chip.cc-removed.active {
+  color: var(--cancelled);
+  border-color: var(--cancelled);
+  background: rgba(239, 95, 103, 0.14);
+}
+
+.diff-filter button.chip.cc-changed.active {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: rgba(232, 168, 56, 0.14);
+}
+
+.cc-loc {
+  font-size: 11px;
+  padding: 0 7px;
+  border-radius: 10px;
+  border: 1px solid var(--rdate);
+  color: var(--rdate);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
 /* ---------- 空闲窗口 ---------- */
 
 .free-controls label {

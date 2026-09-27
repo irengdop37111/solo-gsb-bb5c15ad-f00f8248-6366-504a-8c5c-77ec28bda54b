@@ -45,6 +45,20 @@ if (!container.textContent?.includes('当前范围内没有有效改动')) {
 }
 console.log('✓ 无改动时显示空状态');
 
+// 1b) 冲突变化页签：初始无编辑显示空状态，随后切回变更影响
+const ccTab = byText('button', '冲突变化') as HTMLElement;
+if (!ccTab) throw new Error('冲突变化 页签未渲染');
+await act(async () => {
+  ccTab.click();
+});
+if (!container.textContent?.includes('当前范围内冲突没有变化')) {
+  throw new Error('无编辑时冲突变化应显示空状态');
+}
+await act(async () => {
+  impactTab.click();
+});
+console.log('✓ 冲突变化页签空状态');
+
 // 2) 停用示例中的覆盖例外（中栏第一个勾选框）后，差异应出现
 const checkboxes = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
 const overrideCb = checkboxes.find((c) => c.checked);
@@ -133,6 +147,46 @@ const rangeDiffs = container.querySelectorAll('.diff-row');
 if (rangeDiffs.length === 0) throw new Error('停用范围例外后应至少有一条差异行');
 console.log(`✓ 停用范围例外后实例回到基础序列，出现 ${rangeDiffs.length} 条差异`);
 
+// 7b) 冲突变化：停用范围例外后站会回到会议室 A，与周三架构评审新增 3 对冲突
+await act(async () => {
+  ccTab.click();
+});
+const ccAdded = container.querySelectorAll('.diff-row.cc-added');
+if (ccAdded.length !== 3) {
+  throw new Error(`停用范围例外后应有 3 对新增冲突，实际 ${ccAdded.length}`);
+}
+if (!container.textContent?.includes('新增冲突')) throw new Error('应标注新增冲突');
+if (container.querySelectorAll('.diff-row.cc-removed, .diff-row.cc-changed').length !== 0) {
+  throw new Error('该场景不应出现消除 / 重叠变化的冲突对');
+}
+console.log(`✓ 冲突变化：停用范围例外后新增 ${ccAdded.length} 对冲突`);
+
+// 无匹配类型的筛选按钮应禁用；按“新增冲突”筛选行数不变
+const ccRemovedChip = byText('button.chip', '消除冲突') as HTMLButtonElement;
+if (!ccRemovedChip || !ccRemovedChip.disabled) throw new Error('无消除冲突时筛选按钮应禁用');
+const ccAddedChip = byText('button.chip', '新增冲突') as HTMLElement;
+await act(async () => ccAddedChip.click());
+if (container.querySelectorAll('.diff-row').length !== 3) {
+  throw new Error('按新增冲突筛选后应仍显示 3 行');
+}
+await act(async () => (byText('button.chip', '全部') as HTMLElement).click());
+
+// 点击冲突行：联动切回生效表并选中实例行（焦点实例 + 冲突方红框）
+await act(async () => {
+  (container.querySelector('.diff-row.cc-added') as HTMLElement).click();
+});
+const ccVisibleBtn = byText('.tabs button', '生效实例') as HTMLElement;
+if (!ccVisibleBtn.classList.contains('active')) {
+  throw new Error('点击冲突变化行应切回生效实例页签');
+}
+if (!container.querySelector('tr.instance-row.selected')) {
+  throw new Error('点击冲突变化行后应选中实例表行');
+}
+if (!container.querySelector('.source-line.conflict-line')) {
+  throw new Error('点击冲突变化行后应在源码中高亮冲突方块');
+}
+console.log('✓ 点击冲突变化行联动实例表与源码定位');
+
 // 8) 重新启用范围例外：差异清空，范围调整恢复
 await act(async () => {
   rangeCb.click();
@@ -143,6 +197,13 @@ if (!container.textContent?.includes('当前范围内没有有效改动')) {
   throw new Error('重新启用范围例外后差异应清空');
 }
 console.log('✓ 重新启用范围例外后差异清空（回到范围状态）');
+
+// 8b) 冲突变化同样立即清空
+await act(async () => ccTab.click());
+if (!container.textContent?.includes('当前范围内冲突没有变化')) {
+  throw new Error('重新启用范围例外后冲突变化应清空');
+}
+console.log('✓ 重新启用范围例外后冲突变化清空');
 
 // 9) 冲突保留方案：选 LOCATION → 出方案；全设必留 → 无解；取消 → 恢复；点击行联动定位
 const keepTab = byText('.tabs button', '冲突保留方案') as HTMLElement;

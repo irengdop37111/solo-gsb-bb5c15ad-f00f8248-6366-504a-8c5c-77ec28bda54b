@@ -26,11 +26,13 @@
 | 例外停用 | 勾选框即时停用任意一条例外（含 CANCELLED 与范围例外），原实例立即恢复并重算冲突 |
 | 规则编辑 | 就地修改 RRULE 文本，合法即实时重算；非法时显示解析错误并回退到上一条有效规则 |
 | 变更影响 | 以 **UID + 原始 recurrence key** 为实例身份，比对原始日历与编辑后的生效实例：新增 / 移除 / 开始·结束移动 / 标题·地点·状态变化逐项列出前后值；移动不会误报成一删一增。支持按变更类型筛选，点击差异项联动实例表与 ICS 源码定位，无改动时显示空状态 |
+| 冲突变化 | 以 **UID + 原始 recurrence key** 标识实例，按 **LOCATION + 无序实例对** 匹配原始日历与当前编辑两侧的 UTC 半开区间冲突：逐对列出**新增**、**消除**及**持续但重叠时长变化**的冲突；实例改期仍关联同一对，改地点体现为旧冲突消除 + 新冲突新增。支持按变化类型筛选，点击结果定位双方实例及 ICS 原文 |
 | 规范化导出 | 输出 CRLF、RFC 5545 折行、按 UID 排序、内聚所需 VTIMEZONE（含合成时区），保留生效的 RANGE=THISANDFUTURE 例外组件，可下载/复制 |
 
 ## 一条命令启动（Docker）
 
-需要已安装 Docker 20.10+ 与 Docker Compose v2：
+需要已安装 Docker 20.10+ 与 Docker Compose v2，**无需其他配置**（纯前端静态托管，
+不依赖任何后端服务；唯一可改项是 `docker-compose.yml` 中的宿主机端口映射）：
 
 ```bash
 docker compose up -d --build
@@ -40,7 +42,7 @@ docker compose up -d --build
 
 > **http://localhost:8080**
 
-打开右栏「**空闲窗口**」页签即可使用空档查找（无需任何额外服务，纯前端静态托管）。
+打开右栏「**冲突变化**」页签即可比对编辑前后的冲突差异（无需任何额外服务，纯前端静态托管）。
 
 停止：
 
@@ -72,7 +74,7 @@ npm run dev        # http://localhost:5173
 ```bash
 npm run build      # 类型检查 + 生产构建到 dist/
 npm run preview    # 本地预览生产构建 http://localhost:4173
-npm run smoke      # 引擎语义冒烟测试（RRULE/RDATE/EXDATE/覆盖/范围例外/取消/DST/冲突/空闲窗口/保留方案/导出）
+npm run smoke      # 引擎语义冒烟测试（RRULE/RDATE/EXDATE/覆盖/范围例外/取消/DST/冲突/冲突变化/空闲窗口/保留方案/导出）
 ```
 
 ## 使用指引
@@ -84,7 +86,7 @@ npm run smoke      # 引擎语义冒烟测试（RRULE/RDATE/EXDATE/覆盖/范围
      红框=冲突方事件块，高亮行=RRULE/RDATE/EXDATE/RECURRENCE-ID 原始行）。
    - **中栏**：每个 UID 一张规则卡，可编辑 RRULE、勾选停用具条例外（含范围例外，
      卡片上标注「范围」与新起点），并显示 RDATE/EXDATE 清单与行号。
-   - **右栏**：实例表六个页签——生效 / 已取消 / 已排除 / **空闲窗口** / **冲突保留方案** / **变更影响**；生效表支持地点关键字过滤与
+   - **右栏**：实例表七个页签——生效 / 已取消 / 已排除 / **空闲窗口** / **冲突保留方案** / **变更影响** / **冲突变化**；生效表支持地点关键字过滤与
      「仅看冲突」。「变更影响」比较原始日历与当前编辑（RRULE 修改、例外停用）后的差异，可按
      新增 / 移除 / 移动 / 字段变化筛选，重解析或调整日期范围后立即重算。DST 标记表示该实例相对
      序列首个实例的 UTC 偏移已变化。
@@ -101,7 +103,13 @@ npm run smoke      # 引擎语义冒烟测试（RRULE/RDATE/EXDATE/覆盖/范围
    无重叠最大权重子集，展示**保留**、**舍弃**两个列表与总权重。必留项互相重叠时列出全部冲突对并
    提示无解（不输出方案）。点击任一实例行在左栏 ICS 源码定位（不切换页签）。方案只作预览，不修改日历；
    范围、规则或例外状态变化后立即重算，权重与必留设置按实例身份保留，消失项不参与。
-7. 点右上「导出规范化 ICS」下载 `normalized.ics`，或「复制 ICS」到剪贴板。
+7. **冲突变化**：逐对列出原始日历与当前编辑（RRULE 修改、例外停用）之间的 LOCATION 冲突差异，
+   可按 新增冲突 / 消除冲突 / 重叠变化 筛选。每行展示冲突双方标题、地点、身份键
+   （`UID#原始 recurrence key`）与双方区间；重叠变化行额外给出重叠时长与双方区间的前后对比。
+   点击任一行：切回「生效实例」并选中焦点实例（已移除的实例以幽灵行展示），左栏 ICS 原文同步
+   高亮双方事件块（焦点=蓝、冲突方=红框）。重解析、编辑规则、停用例外或调整日期范围后立即重算，
+   无变化时显示空状态。
+8. 点右上「导出规范化 ICS」下载 `normalized.ics`，或「复制 ICS」到剪贴板。
 
 ## 语义约定
 
@@ -110,6 +118,12 @@ npm run smoke      # 引擎语义冒烟测试（RRULE/RDATE/EXDATE/覆盖/范围
   覆盖改期与范围位移后两侧身份仍相同，只标记开始/结束移动；
   仅候选侧存在标为新增，仅原始侧存在标为移除。比对只纳入当前查询范围内的生效实例，
   已取消 / 已排除的审计行不参与。
+- **冲突变化**：冲突对身份为 `LOCATION + 双方实例身份（UID#原始 recurrence key，无序）`。
+  两侧各自由当前生效实例经同一 LOCATION 半开区间重叠检测（复用冲突计算，相切不算）得出
+  冲突对集合后按身份比对：仅候选侧存在为**新增冲突**，仅原始侧存在为**消除冲突**，
+  两侧都存在但 UTC 重叠时长不同为**重叠变化**（重叠时长相同的持续冲突不列出）。
+  实例改期身份不变，仍关联同一对；实例改地点则旧地点冲突对消除、新地点冲突对新增。
+  已取消 / 已排除实例不参与；无 LOCATION 的实例不参与。
 - **范围例外（THISANDFUTURE）**：
   - 影响范围按**原始 recurrence key** 判定：原始 key ≥ 例外锚点（RECURRENCE-ID 对应时刻）
     的全部实例（含 RDATE 实例）都被调整，与实例当前是否已被位移无关。
@@ -166,13 +180,14 @@ src/
 │   ├── timezones.ts    # Intl 探测 DST 切换点，合成 VTIMEZONE
 │   ├── expansion.ts    # RRULE 迭代 + RDATE/EXDATE/覆盖/取消 + THISANDFUTURE 范围例外 + 范围与上限
 │   ├── conflicts.ts    # LOCATION 维度半开区间重叠检测
+│   ├── conflict-diff.ts# 冲突变化：LOCATION+无序实例身份对匹配（新增/消除/重叠变化）
 │   ├── keep-plan.ts    # 冲突保留方案：必留约束的加权区间调度（权重→数量→字典序三级决胜）
 │   ├── free-windows.ts # 空闲窗口：跨日裁剪（真实 DST 日界）+ 忙碌区间合并 + 相邻事件
 │   ├── diff.ts         # 变更影响：UID+原始 recurrence key 身份比对（新增/移除/移动/字段）
 │   ├── normalizer.ts   # 规范化 ICS 输出（排序、时区内聚、规则/停用生效）
 │   ├── types.ts        # 领域模型
 │   └── samples.ts      # 内置示例
-├── components/         # SourceView / InstanceTable / SeriesPanel / ChangeImpact / FreeWindows / KeepPlan
+├── components/         # SourceView / InstanceTable / SeriesPanel / ChangeImpact / ConflictChanges / FreeWindows / KeepPlan
 ├── utils/
 │   ├── format.ts       # 墙钟/时长格式化与日期工具
 │   └── localtime.ts    # IANA 时区墙钟⇄UTC、真实本地日界（DST 23/25h）
