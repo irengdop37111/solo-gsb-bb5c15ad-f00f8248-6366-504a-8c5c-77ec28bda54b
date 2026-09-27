@@ -4,6 +4,7 @@ import { parseCalendar } from '../src/ical-engine/parser';
 import { expandAll } from '../src/ical-engine/expansion';
 import { detectConflicts, instanceId } from '../src/ical-engine/conflicts';
 import { diffInstances, instanceIdentity } from '../src/ical-engine/diff';
+import { collectConflictPairs, diffConflictPairs } from '../src/ical-engine/conflict-diff';
 import { normalizeCalendar } from '../src/ical-engine/normalizer';
 import { collectLocations, computeFreeWindows } from '../src/ical-engine/free-windows';
 import { computeKeepPlan } from '../src/ical-engine/keep-plan';
@@ -1411,6 +1412,161 @@ END:VCALENDAR
     });
     const keptAZ = planAllZero.kept.map((p) => p.identity);
     assert.ok(keptAZ.includes(A) && keptAZ.includes(C) && !keptAZ.includes(B), 'zero-weight: max count packing keeps A+C');
+  }
+}
+
+// ================= 冲突变化（LOCATION 冲突对 diff） =================
+// 时间线（UTC，2026-03）：
+//   Room-X：A 09:00–10:00 每日 3/5–3/7（3/6 被例外改到 09:45–10:45）
+//           B 09:30–10:30 每日 3/5–3/7；C 3/5 被例外从 Room-Y 移到 Room-X（09:00–10:00）
+//   Room-Y：D 3/5 09:30–10:30（基线时 C 在 Room-X，Room-Y 无冲突）
+const CD_ICS = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test-ConflictDiff//
+BEGIN:VEVENT
+UID:cd-a@x
+SUMMARY:A
+LOCATION:Room-X
+DTSTART:20260305T090000Z
+DTEND:20260305T100000Z
+RRULE:FREQ=DAILY;COUNT=3
+END:VEVENT
+BEGIN:VEVENT
+UID:cd-a@x
+SUMMARY:A (moved 09:45)
+LOCATION:Room-X
+DTSTART:20260306T094500Z
+DTEND:20260306T104500Z
+RECURRENCE-ID:20260306T090000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:cd-b@x
+SUMMARY:B
+LOCATION:Room-X
+DTSTART:20260305T093000Z
+DTEND:20260305T103000Z
+RRULE:FREQ=DAILY;COUNT=3
+END:VEVENT
+BEGIN:VEVENT
+UID:cd-c@x
+SUMMARY:C
+LOCATION:Room-Y
+DTSTART:20260305T090000Z
+DTEND:20260305T100000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:cd-c@x
+SUMMARY:C (to Room-X)
+LOCATION:Room-X
+DTSTART:20260305T090000Z
+DTEND:20260305T100000Z
+RECURRENCE-ID:20260305T090000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:cd-d@x
+SUMMARY:D
+LOCATION:Room-Y
+DTSTART:20260305T093000Z
+DTEND:20260305T103000Z
+END:VEVENT
+END:VCALENDAR
+`;
+{
+  const p = parseCalendar(CD_ICS);
+  assert.ok(!('fatal' in p), 'conflict-diff sample parses');
+  if (!('fatal' in p)) {
+    const range = { startUtc: Date.UTC(2026, 2, 1) / 1000, endUtc: Date.UTC(2026, 3, 1) / 1000 };
+    const base = expandAll(p.masters, range, { disabledOverrides: new Set(), editedRrule: {} });
+    const ka5 = utc(2026, 2, 5, 9);
+    const ka6 = utc(2026, 2, 6, 9);
+    const ka7 = utc(2026, 2, 7, 9);
+    const ka8 = utc(2026, 2, 8, 9);
+    const kb5 = utc(2026, 2, 5, 9, 30);
+    const kb6 = utc(2026, 2, 6, 9, 30);
+    const kb7 = utc(2026, 2, 7, 9, 30);
+    const kb8 = utc(2026, 2, 8, 9, 30);
+    const kc5 = utc(2026, 2, 5, 9);
+    const kd5 = utc(2026, 2, 5, 9, 30);
+    const pairOf = (pairs: ReturnType<typeof collectConflictPairs>, uidA: string, keyA: number, uidB: string, keyB: number) =>
+      pairs.find((pp) => pp.identityA === `${uidA}#${keyA}` && pp.identityB === `${uidB}#${keyB}`);
+
+    // D0) 基线冲突对：Room-X 5 对（A×B 三天、C×A、C×B），Room-Y 无对（C 被例外移走）
+    const basePairs = collectConflictPairs(base.instances);
+    assert.strictEqual(basePairs.length, 5, 'baseline has five conflict pairs');
+    assert.strictEqual(pairOf(basePairs, 'cd-a@x', ka5, 'cd-b@x', kb5)?.overlapSec, 1800, 'A×B 3/5 overlap 30m');
+    assert.strictEqual(pairOf(basePairs, 'cd-a@x', ka6, 'cd-b@x', kb6)?.overlapSec, 2700, 'A×B 3/6 overlap 45m (override 09:45)');
+    assert.strictEqual(pairOf(basePairs, 'cd-a@x', ka7, 'cd-b@x', kb7)?.overlapSec, 1800, 'A×B 3/7 overlap 30m');
+    assert.strictEqual(pairOf(basePairs, 'cd-a@x', ka5, 'cd-c@x', kc5)?.overlapSec, 3600, 'C×A 3/5 overlap 60m');
+    assert.strictEqual(pairOf(basePairs, 'cd-b@x', kb5, 'cd-c@x', kc5)?.overlapSec, 1800, 'C×B 3/5 overlap 30m');
+    assert.ok(basePairs.every((pp) => pp.location === 'Room-X'), 'all baseline pairs in Room-X');
+
+    // D1) 无编辑：与基线完全一致，无冲突变化
+    assert.strictEqual(diffConflictPairs(base.instances, base.instances).length, 0, 'identical sets yield no conflict changes');
+    const fresh = expandAll(p.masters, range, { disabledOverrides: new Set(), editedRrule: {} });
+    assert.strictEqual(diffConflictPairs(base.instances, fresh.instances).length, 0, 'fresh expansion equals baseline');
+
+    // D2) 停用 A 的改期例外：A 3/6 回到 09:00–10:00，同一对重叠 45m→30m（改期仍关联同一对）
+    const aMaster = p.masters.find((m) => m.uid === 'cd-a@x')!;
+    const aOv = aMaster.overrides[0];
+    const cur2 = expandAll(p.masters, range, { disabledOverrides: new Set([aOv.id]), editedRrule: {} });
+    const ch2 = diffConflictPairs(base.instances, cur2.instances);
+    assert.strictEqual(ch2.length, 1, 'only one pair changed');
+    assert.strictEqual(ch2[0].kind, 'overlap-changed', 'reschedule keeps pair identity -> overlap-changed');
+    assert.strictEqual(ch2[0].beforeOverlapSec, 2700, 'overlap before 45m');
+    assert.strictEqual(ch2[0].afterOverlapSec, 1800, 'overlap after 30m');
+    assert.strictEqual(ch2[0].identityA, `cd-a@x#${ka6}`, 'pair identity A side stable');
+    assert.strictEqual(ch2[0].identityB, `cd-b@x#${kb6}`, 'pair identity B side stable');
+    assert.strictEqual(ch2[0].afterA?.startUtc, ka6, 'after side A back to 09:00');
+    assert.ok(
+      !ch2.some((c) => c.kind === 'added' || c.kind === 'removed'),
+      'reschedule must not be reported as added/removed pair'
+    );
+
+    // D3) 停用 C 的改地点例外：Room-X 两对消除 + Room-Y 一对新增
+    const cMaster = p.masters.find((m) => m.uid === 'cd-c@x')!;
+    const cOv = cMaster.overrides[0];
+    const cur3 = expandAll(p.masters, range, { disabledOverrides: new Set([cOv.id]), editedRrule: {} });
+    const ch3 = diffConflictPairs(base.instances, cur3.instances);
+    assert.strictEqual(ch3.length, 3, 'location change yields 2 removed + 1 added');
+    const removed3 = ch3.filter((c) => c.kind === 'removed');
+    const added3 = ch3.filter((c) => c.kind === 'added');
+    assert.strictEqual(removed3.length, 2, 'two Room-X pairs eliminated');
+    assert.ok(removed3.every((c) => c.location === 'Room-X'), 'eliminated pairs were in Room-X');
+    assert.ok(
+      removed3.some((c) => c.identityA === `cd-a@x#${ka5}` && c.identityB === `cd-c@x#${kc5}`) &&
+        removed3.some((c) => c.identityA === `cd-b@x#${kb5}` && c.identityB === `cd-c@x#${kc5}`),
+      'eliminated pairs are C×A and C×B'
+    );
+    assert.strictEqual(added3.length, 1, 'one Room-Y pair added');
+    assert.strictEqual(added3[0].location, 'Room-Y', 'new pair in Room-Y');
+    assert.strictEqual(added3[0].identityA, `cd-c@x#${kc5}`, 'added pair C side');
+    assert.strictEqual(added3[0].identityB, `cd-d@x#${kd5}`, 'added pair D side');
+    assert.strictEqual(added3[0].afterOverlapSec, 1800, 'C×D overlap 30m');
+
+    // D4) 编辑 RRULE 延长序列：A、B 都加到 3/8 → 新增一对
+    const cur4 = expandAll(p.masters, range, {
+      disabledOverrides: new Set(),
+      editedRrule: { 'cd-a@x': 'FREQ=DAILY;COUNT=4', 'cd-b@x': 'FREQ=DAILY;COUNT=4' },
+    });
+    const ch4 = diffConflictPairs(base.instances, cur4.instances);
+    assert.strictEqual(ch4.length, 1, 'one added pair from extended rules');
+    assert.strictEqual(ch4[0].kind, 'added');
+    assert.strictEqual(ch4[0].identityA, `cd-a@x#${ka8}`, 'added pair A 3/8');
+    assert.strictEqual(ch4[0].identityB, `cd-b@x#${kb8}`, 'added pair B 3/8');
+    assert.strictEqual(ch4[0].afterOverlapSec, 1800, 'added pair overlap 30m');
+
+    // D5) 编辑 RRULE 缩短 B：3/7 的 A×B 对消除
+    const cur5 = expandAll(p.masters, range, {
+      disabledOverrides: new Set(),
+      editedRrule: { 'cd-b@x': 'FREQ=DAILY;COUNT=2' },
+    });
+    const ch5 = diffConflictPairs(base.instances, cur5.instances);
+    assert.strictEqual(ch5.length, 1, 'one removed pair from shortened rule');
+    assert.strictEqual(ch5[0].kind, 'removed');
+    assert.strictEqual(ch5[0].identityA, `cd-a@x#${ka7}`, 'removed pair A 3/7');
+    assert.strictEqual(ch5[0].identityB, `cd-b@x#${kb7}`, 'removed pair B 3/7');
+    assert.strictEqual(ch5[0].beforeOverlapSec, 1800, 'removed pair had 30m overlap');
+    assert.ok(ch5[0].beforeA && ch5[0].beforeB && !ch5[0].afterA, 'removed pair keeps baseline sides only');
   }
 }
 

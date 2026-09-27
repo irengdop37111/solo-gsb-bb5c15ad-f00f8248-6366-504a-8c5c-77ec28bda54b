@@ -4,6 +4,8 @@ import { expandAll } from './ical-engine/expansion';
 import { detectConflicts, instanceId } from './ical-engine/conflicts';
 import { diffInstances, instanceIdentity } from './ical-engine/diff';
 import type { InstanceChange } from './ical-engine/diff';
+import { diffConflictPairs } from './ical-engine/conflict-diff';
+import type { ConflictChange } from './ical-engine/conflict-diff';
 import { normalizeCalendar } from './ical-engine/normalizer';
 import { SAMPLE_ICS } from './ical-engine/samples';
 import type {
@@ -123,6 +125,12 @@ export default function App() {
     return diffInstances(baseline.instances, expansion.instances);
   }, [baseline, expansion]);
 
+  // 冲突变化：基线冲突对 vs 当前编辑状态下的冲突对（按 LOCATION + 无序身份对匹配）
+  const conflictChanges = useMemo(() => {
+    if (!baseline || !expansion) return [] as ConflictChange[];
+    return diffConflictPairs(baseline.instances, expansion.instances);
+  }, [baseline, expansion]);
+
   const conflicts = useMemo(
     () => (expansion ? detectConflicts(expansion.instances) : null),
     [expansion]
@@ -196,6 +204,37 @@ export default function App() {
       }
     },
     [selectInstance]
+  );
+
+  // 点击冲突变化项：定位双方实例（一方选中、另一方源码红框）与 ICS 原文
+  const selectConflictChange = useCallback(
+    (change: ConflictChange) => {
+      // 展示以“有效一侧”为准：新增 / 重叠变化看当前侧，消除看原始侧
+      const primary = change.afterA ?? change.beforeA;
+      const secondary = change.afterB ?? change.beforeB;
+      if (!primary || !secondary || !expansion) return;
+      // 主实例不在当前生效列表（已移除 / 被改期）时，以幽灵行在生效表展示
+      const ghost = expansion.instances.some((i) => instanceId(i) === instanceId(primary))
+        ? null
+        : primary;
+      setGhostInstance(ghost);
+      setSlotMark(null);
+      setRightTab('visible');
+      setSelection({
+        instanceKey: instanceId(primary),
+        seriesId: primary.seriesId,
+        overrideId: primary.override?.id ?? primary.rangeOverride?.id ?? null,
+        conflictRanges: [
+          {
+            start: secondary.overrideRange?.start ?? secondary.masterRange.start,
+            end: secondary.overrideRange?.end ?? secondary.masterRange.end,
+            kind: 'conflict' as const,
+          },
+        ],
+        token: `cpair-${change.pairKey}-${change.kind}`,
+      });
+    },
+    [expansion]
   );
 
   // 点击空闲窗口：切到生效表，高亮并定位前邻（优先）/后邻
@@ -426,6 +465,14 @@ export default function App() {
                     </b>
                   </span>
                 )}
+                {conflictChanges.length > 0 && (
+                  <span>
+                    冲突变化{' '}
+                    <b style={{ color: 'var(--conflict)', cursor: 'pointer' }} onClick={() => setRightTab('conflicts')}>
+                      {conflictChanges.length}
+                    </b>
+                  </span>
+                )}
               </span>
             )}
           </div>
@@ -502,6 +549,8 @@ export default function App() {
               onTabChange={setRightTab}
               changes={changes}
               onSelectChange={selectChange}
+              conflictChanges={conflictChanges}
+              onSelectConflictChange={selectConflictChange}
               selectedIdentity={selectedIdentity}
               ghostInstance={activeGhost}
               selectedKey={selection.instanceKey}

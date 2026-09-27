@@ -240,6 +240,112 @@ if (!keepTab.classList.contains('active')) {
 }
 console.log('✓ 点击保留行联动源码定位（不切换页签）');
 
+// 10) 冲突变化页签：空状态 → 停用范围例外出现新增对 → 点击联动 → 恢复清空 → 编辑规则出现消除对
+const cdTab = byText('.tabs button', '冲突变化') as HTMLElement;
+if (!cdTab) throw new Error('冲突变化 页签未渲染');
+await act(async () => {
+  cdTab.click();
+});
+if (!container.textContent?.includes('LOCATION 冲突没有变化')) {
+  throw new Error('无编辑时冲突变化应显示空状态');
+}
+console.log('✓ 冲突变化页签空状态');
+
+// 停用范围例外（3/23 起站会回到会议室 A 09:00）→ 与周三架构评审新增 3 对冲突（3/25、4/1、4/8）
+const rangeCb2 = ([...container.querySelectorAll('.override-item input[type="checkbox"]')] as HTMLInputElement[])
+  .find((c) => c.closest('.override-item')?.textContent?.includes('范围'));
+if (!rangeCb2) throw new Error('找不到范围例外勾选框');
+await act(async () => {
+  rangeCb2.click();
+});
+await act(async () => {});
+const cdRows = container.querySelectorAll('.cpair-row');
+if (cdRows.length !== 3) throw new Error(`停用范围例外后应有 3 对新增冲突，实际 ${cdRows.length}`);
+const addedChip = byText('button.chip', '新增') as HTMLButtonElement;
+if (!addedChip?.textContent?.includes('3')) throw new Error('新增筛选计数应为 3');
+const overlapChip = byText('button.chip', '重叠变化') as HTMLButtonElement;
+if (!overlapChip?.disabled) throw new Error('无重叠变化时该筛选钮应禁用');
+if (!cdRows[0].textContent?.includes('会议室 A')) throw new Error('新增冲突对应标注 LOCATION');
+console.log('✓ 停用范围例外后出现 3 对新增冲突（筛选计数正确）');
+
+// 点击第一对：切回生效实例、选中冲突方行、源码红框高亮另一方所在块
+await act(async () => {
+  (cdRows[0] as HTMLElement).click();
+});
+const visibleTabNow = byText('.tabs button', '生效实例') as HTMLElement;
+if (!visibleTabNow.classList.contains('active')) {
+  throw new Error('点击冲突对应切回生效实例页签');
+}
+const cdSelected = container.querySelector('tr.instance-row.selected');
+if (!cdSelected?.textContent?.includes('架构评审')) {
+  throw new Error('应选中冲突对中的架构评审实例行');
+}
+if (!container.querySelector('.source-line.conflict-line')) {
+  throw new Error('源码应红框高亮冲突另一方所在块');
+}
+console.log('✓ 点击冲突变化联动双方实例与 ICS 源码');
+
+// 恢复范围例外 → 冲突变化清空
+await act(async () => {
+  rangeCb2.click();
+});
+await act(async () => {});
+await act(async () => {
+  cdTab.click();
+});
+if (!container.textContent?.includes('LOCATION 冲突没有变化')) {
+  throw new Error('恢复范围例外后冲突变化应清空');
+}
+console.log('✓ 恢复范围例外后冲突变化清空');
+
+// 编辑架构评审规则 COUNT=6 → COUNT=2：3/18 的冲突对消除；点击消除对定位基线侧（幽灵行）
+const archCard = [...container.querySelectorAll('.series-card')].find((c) =>
+  c.textContent?.includes('arch-review')
+);
+const archInput = archCard?.querySelector('.rrule-edit input') as HTMLInputElement | null;
+if (!archInput) throw new Error('找不到架构评审的 RRULE 输入框');
+await act(async () => {
+  const setter = Object.getOwnPropertyDescriptor(
+    (dom.window as any).HTMLInputElement.prototype,
+    'value'
+  )!.set!;
+  setter.call(archInput, 'FREQ=WEEKLY;BYDAY=WE;COUNT=2');
+  archInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+});
+await act(async () => {});
+const removedRows = container.querySelectorAll('.cpair-row');
+if (removedRows.length !== 1) throw new Error(`编辑规则后应有 1 对消除冲突，实际 ${removedRows.length}`);
+if (!removedRows[0].textContent?.includes('原重叠')) throw new Error('消除对应显示原重叠时长');
+const removedChip = byText('button.chip', '消除') as HTMLButtonElement;
+if (!removedChip?.textContent?.includes('1')) throw new Error('消除筛选计数应为 1');
+console.log('✓ 编辑 RRULE 后出现 1 对消除冲突');
+
+await act(async () => {
+  (removedRows[0] as HTMLElement).click();
+});
+if (!container.querySelector('tr.instance-row.ghost-removed')) {
+  throw new Error('消除对的基线侧实例应以幽灵行展示');
+}
+if (!container.querySelector('.source-line.conflict-line')) {
+  throw new Error('消除对点击后源码应红框高亮另一方');
+}
+console.log('✓ 点击消除对定位基线侧实例（幽灵行）与源码');
+
+// 重置规则 → 冲突变化再次清空
+const archReset = [...archCard!.querySelectorAll('button')].find((b) => b.textContent === '重置');
+if (!archReset) throw new Error('找不到规则重置按钮');
+await act(async () => {
+  (archReset as HTMLElement).click();
+});
+await act(async () => {});
+await act(async () => {
+  cdTab.click();
+});
+if (!container.textContent?.includes('LOCATION 冲突没有变化')) {
+  throw new Error('重置规则后冲突变化应清空');
+}
+console.log('✓ 重置规则后冲突变化清空');
+
 root.unmount();
 console.log('✓ DOM 集成验证全部通过');
 // jsdom 的定时器会让事件循环保持存活，显式退出

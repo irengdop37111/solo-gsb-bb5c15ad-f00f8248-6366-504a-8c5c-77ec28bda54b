@@ -564,6 +564,7 @@ tr.audit-row.cancelled td {
 .tabs {
   display: flex;
   border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
 }
 
 .tabs button {
@@ -850,6 +851,39 @@ tr.instance-row.ghost-removed td {
 tr.instance-row.ghost-removed .tag {
   color: var(--cancelled);
   border-color: var(--cancelled);
+}
+
+/* ---------- 冲突变化 ---------- */
+
+.diff-filter button.chip.overlap-changed.active {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: rgba(232, 168, 56, 0.14);
+}
+
+.diff-badge.overlap-changed {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.diff-row.overlap-changed {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+
+.cpair-overlap {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--warn);
+  white-space: nowrap;
+}
+
+.cpair-summary {
+  flex: none;
+  max-width: 38%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
 }
 
 /* ---------- 空闲窗口 ---------- */
